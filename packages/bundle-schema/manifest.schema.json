@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Immerse-UIUC/prompt-to-ply/packages/bundle-schema/manifest.schema.json",
+  "title": "Prompt-to-PLY Bundle Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundleVersion",
+    "jobId",
+    "status",
+    "prompt",
+    "createdAt",
+    "artifacts",
+    "provenance"
+  ],
+  "properties": {
+    "bundleVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "$ref": "#/$defs/jobStatus"
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "viewerCompatibilityVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stillCandidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stillCandidate"
+      },
+      "maxItems": 4
+    },
+    "selectedStill": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/selectedStill"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sharpResult": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sharpResult"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "artifacts": {
+      "$ref": "#/$defs/artifacts"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "$defs": {
+    "jobStatus": {
+      "type": "string",
+      "enum": [
+        "created",
+        "generating_stills",
+        "stills_ready",
+        "candidate_selected",
+        "selected_still_qc",
+        "reconstruction_running",
+        "reconstruction_succeeded",
+        "bundle_written",
+        "viewer_ready",
+        "completed",
+        "generation_failed",
+        "qc_failed",
+        "reconstruction_failed",
+        "bundle_failed",
+        "viewer_failed",
+        "transfer_failed"
+      ]
+    },
+    "artifactPath": {
+      "type": "string",
+      "minLength": 1
+    },
+    "qcReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "checks"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "passed"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "passed": {
+                "type": "boolean"
+              },
+              "detail": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "stillCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "backend",
+        "imagePath",
+        "thumbnailPath"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seed": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "backend": {
+          "type": "string"
+        },
+        "imagePath": {
+          "$ref": "#/$defs/artifactPath"
+        },
+        "thumbnailPath": {
+          "$ref": "#/$defs/artifactPath"
+        },
+        "qcReport": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/qcReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "selectedStill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "backend",
+        "imagePath",
+        "qcReport"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seed": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "backend": {
+          "type": "string"
+        },
+        "imagePath": {
+          "$ref": "#/$defs/artifactPath"
+        },
+        "qcReport": {
+          "$ref": "#/$defs/qcReport"
+        }
+      }
+    },
+    "sharpResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plyPath",
+        "logPath",
+        "durationMs"
+      ],
+      "properties": {
+        "plyPath": {
+          "$ref": "#/$defs/artifactPath"
+        },
+        "previewImagePath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "previewVideoPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "logPath": {
+          "$ref": "#/$defs/artifactPath"
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "selected",
+        "output",
+        "logs",
+        "qc",
+        "provenance"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactPath"
+          }
+        },
+        "selected": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactPath"
+          }
+        },
+        "logs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactPath"
+          }
+        },
+        "qc": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactPath"
+          }
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactPath"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stillGeneration",
+        "reconstruction",
+        "cameraModel"
+      ],
+      "properties": {
+        "stillGeneration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "backend"
+          ],
+          "properties": {
+            "backend": {
+              "type": "string"
+            },
+            "seed": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        },
+        "reconstruction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "backend"
+          ],
+          "properties": {
+            "backend": {
+              "type": "string",
+              "const": "ml-sharp"
+            },
+            "previewImageGenerated": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "previewVideoGenerated": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "cameraModel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "focalLength"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "assumed"
+            },
+            "focalLength": {
+              "type": "string",
+              "const": "30mm_default"
+            }
+          }
+        }
+      }
+    }
+  }
+}

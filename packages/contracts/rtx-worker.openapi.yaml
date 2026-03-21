@@ -1,0 +1,235 @@
+openapi: 3.1.0
+info:
+  title: Prompt-to-PLY RTX Worker API
+  version: 0.1.0
+  summary: MVP still-generation and asset-hosting API for the LAN worker.
+  description: |
+    This contract covers the MVP worker responsibilities defined in the canonical architecture.
+    The worker is responsible for still generation, generation-job status, and generated asset retrieval.
+servers:
+  - url: http://rtx-worker.local
+    description: Example local-network worker endpoint
+paths:
+  /v1/stills:
+    post:
+      operationId: createStillGenerationJob
+      summary: Create a still-generation job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StillGenerationRequest'
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerJob'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/jobs/{id}:
+    get:
+      operationId: getStillGenerationJob
+      summary: Get still-generation job status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerJob'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/assets/{jobId}/{name}:
+    get:
+      operationId: getWorkerAsset
+      summary: Fetch a generated asset for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Asset content
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Asset not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    StillGenerationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - prompt
+        - count
+        - backend
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+        count:
+          type: integer
+          minimum: 1
+          maximum: 4
+          default: 4
+        backend:
+          type: string
+          enum:
+            - google-gemini
+            - flux-dev
+        resolution:
+          type: object
+          additionalProperties: false
+          properties:
+            width:
+              type: integer
+              minimum: 1
+              default: 1024
+            height:
+              type: integer
+              minimum: 1
+              default: 1024
+        styleHints:
+          type: array
+          items:
+            type: string
+        seed:
+          type:
+            - integer
+            - 'null'
+    WorkerJob:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - prompt
+        - backend
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        prompt:
+          type: string
+        backend:
+          type: string
+          enum:
+            - google-gemini
+            - flux-dev
+        status:
+          type: string
+          enum:
+            - created
+            - generating_stills
+            - stills_ready
+            - generation_failed
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        resolution:
+          type: object
+          additionalProperties: false
+          properties:
+            width:
+              type: integer
+            height:
+              type: integer
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateAsset'
+        error:
+          anyOf:
+            - $ref: '#/components/schemas/ErrorResponse'
+            - type: 'null'
+    CandidateAsset:
+      type: object
+      additionalProperties: false
+      required:
+        - index
+        - assetName
+        - mimeType
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        assetName:
+          type: string
+        thumbnailAssetName:
+          type:
+            - string
+            - 'null'
+        mimeType:
+          type: string
+        width:
+          type:
+            - integer
+            - 'null'
+        height:
+          type:
+            - integer
+            - 'null'
+        seed:
+          type:
+            - integer
+            - 'null'
+        checksum:
+          type:
+            - string
+            - 'null'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        retryable:
+          type: boolean

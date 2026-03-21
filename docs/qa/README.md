@@ -10,3 +10,7 @@ Use this directory for validation strategy and release confidence artifacts.
 - manual test plans
 - regression checklists
 - quality notes from milestone reviews
+
+## Current Documents
+
+- `feasibility-harness.md`
