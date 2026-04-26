@@ -4,7 +4,7 @@
 
 This document is the canonical architecture and implementation spec for the Prompt-to-PLY MVP. It supersedes `Architecture-v1.md` for current product and engineering decisions.
 
-The system converts **text or speech prompts into 3D Gaussian splats (`.ply`)** using Apple's `ml-sharp`, with a macOS-first orchestration layer and a later visionOS client.
+The system converts **prompted or supplied imagery into 3D Gaussian splats (`.ply`)** using Apple's `ml-sharp`, with a macOS-first orchestration layer and later immersive viewer targets.
 
 The canonical MVP pipeline is:
 
@@ -19,7 +19,9 @@ This architecture treats `ml-sharp` as a **single-image reconstruction backend**
 - Reproducibility via bundles, logs, and provenance
 - Pluggable image-generation and reconstruction backends
 - Viewer decoupled from pipeline success
-- Vision Pro as a thin client coordinated by the Mac
+- Prompt UX decoupled from reconstruction and bundle ownership
+- Native Vision Pro as the first immersive viewer target
+- Platform-agnostic immersive viewers as a parallel future path
 
 ## System Architecture
 
@@ -28,7 +30,7 @@ This architecture treats `ml-sharp` as a **single-image reconstruction backend**
 The macOS app is the authoritative system.
 
 Responsibilities:
-- Prompt entry by text and dictation
+- Minimal prompt or job intake by text, file, CLI argument, app UI, or future external service
 - Image generation orchestration
 - Candidate selection UI
 - Job lifecycle and state machine ownership
@@ -38,6 +40,12 @@ Responsibilities:
 - Provenance capture and retry control
 - Viewer launch as an optional post-processing step
 - Vision Pro pairing, delivery, and job synchronization
+
+Prompt UX boundary:
+- This repository owns pipeline intake, job state, artifacts, bundles, and provenance.
+- It should not own advanced prompt composition, speech-to-text, palette selection, or iterative prompt-refinement workflows as core architecture.
+- Those workflows may live in a sister service or app and submit prompt/job requests into this pipeline.
+- The pipeline must preserve the original prompt and any refined/generated prompt metadata when provided.
 
 ### Worker Plane (RTX Service)
 
@@ -52,9 +60,12 @@ Responsibilities:
 ### Viewer Plane
 
 - macOS: MetalSplatter or another compatible `.ply` viewer
-- visionOS: embedded or forked MetalSplatter-derived viewer
+- Viewer Target A: native visionOS client with embedded or forked MetalSplatter-derived `.ply` viewing
+- Viewer Target B: platform-agnostic WebXR/WebSpatial-style prototype for browser or headset portability
+- Panorama gut-check: direct viewing of the raw equirectangular source image before viewport extraction and SHARP runs
 
 Viewer support is a convenience feature. Pipeline success is defined before viewer launch.
+Native visionOS remains the first immersive target. The WebXR/WebSpatial path is a parallel future viewer target and must not redefine Phase 1 bundle success.
 
 ### Repository Layout
 
@@ -89,7 +100,7 @@ Viewer support is a convenience feature. Pipeline success is defined before view
 
 ### MVP Flow
 
-1. User enters or dictates a prompt on macOS.
+1. A prompt or supplied image enters through the CLI, macOS app, or a future external prompt service.
 2. The system generates 4 still candidates at the configured target resolution.
 3. The user selects 1 candidate.
 4. The system runs selected-still QC.
@@ -111,6 +122,28 @@ Minimum QC checks:
 - provenance records the chosen candidate, backend, and seed when available
 
 Rejected stills must fail before reconstruction starts and transition the job into `qc_failed`.
+
+### Phase 1 Local Validation Harness
+
+Before headset delivery or immersive viewer work, Phase 1 must validate artifacts locally on macOS.
+
+Validation ladder:
+- image QC for captured and generated stills
+- candidate contact sheet for manual desktop review
+- panorama source QC for equirectangular inputs
+- raw equirectangular 360 gut-check viewing when a lightweight local viewer is available
+- viewport extraction contact sheet for panorama runs
+- `.ply` structural validation after SHARP execution
+- MetalSplatter desktop inspection when installed
+
+Minimum checks:
+- still images decode successfully and have supported non-zero dimensions
+- generated still candidates are preserved for visual inspection before selection
+- equirectangular images are 2:1 before viewport extraction
+- panorama seam and horizon heuristics are recorded when implemented
+- extracted viewport count and filenames match the configured viewport set
+- emitted `.ply` files parse, contain a valid header, and are non-empty
+- viewer failures remain non-blocking after bundle validation succeeds
 
 ## State Machine
 
@@ -145,6 +178,9 @@ The macOS app is responsible for owning state transitions, retry policy, and per
 ### Still Generation
 
 Cloud default:
+- OpenAI GPT Image 2 via the Image API
+
+Cloud optional:
 - Google Gemini image generation
 
 Local default:
@@ -162,8 +198,9 @@ Future experimental backends:
 ### Backend Policy
 
 - MVP contracts must assume single-image `ml-sharp`.
-- Additional backends must plug into the same job lifecycle and bundle contract.
+- Still-generation backends must plug into a provider interface so OpenAI, Gemini, captured images, and worker-backed generation all produce the same candidate records.
 - Experimental backends must not change the MVP success boundary or required API surface.
+- OpenAI GPT Image 2 is the default cloud still backend for Phase 1; Gemini remains a swappable provider, not the default.
 
 ## Public Interfaces and Contracts
 
@@ -173,6 +210,12 @@ Future experimental backends:
 - `StillCandidate(index, seed, backend, imageURL, thumbnailURL, qcReport)`
 - `SharpResult(plyURL, previewImageURL?, previewVideoURL?, logURL, durationMs)`
 - `BundleManifest(jobId, prompt, selectedStill, sharpResult, provenance, viewerCompatibilityVersion)`
+- `PromptInput(originalPrompt, refinedPrompt?, source, metadata)`
+- `PanoramaInput(sourceImageURL, projection, qcReport)`
+- `PerspectiveViewport(id, yaw, pitch, fieldOfView, imageURL, qcReport)`
+- `ViewportSet(source, viewports, extractionReport)`
+- `ViewportSharpResult(viewportId, plyURL, previewImageURL?, previewVideoURL?, logURL, durationMs)`
+- `PanoramaRunManifest(jobId, prompt, panoramaInput, viewportSet, sharpResults, provenance, viewerCompatibilityVersion)`
 
 Recommended semantics:
 - `GenerationJob.status` must map directly to the state machine in this document.
@@ -184,6 +227,9 @@ Recommended semantics:
 ### macOS-Side Interfaces
 
 - `StillGenerator.generate(prompt, count, styleHints)`
+- `StillSourceProvider.generate(prompt, count, options)`
+- `PanoramaGenerator.generate(prompt, options)`
+- `ViewportExtractor.extract(equirectangularImageURL, viewportSpec)`
 - `StillQC.evaluate(selectedStillURL, prompt)`
 - `SharpExecutor.run(selectedStillURL)`
 - `BundleWriter.write(jobArtifacts)`
@@ -191,6 +237,9 @@ Recommended semantics:
 
 Interface expectations:
 - `StillGenerator.generate` returns candidate metadata including backend identity and seed when available.
+- `StillSourceProvider.generate` is the shared provider boundary for captured, OpenAI, Gemini, and worker-backed still sources.
+- `PanoramaGenerator.generate` returns one equirectangular source image plus provider provenance.
+- `ViewportExtractor.extract` converts one equirectangular image into ordinary perspective stills before `ml-sharp` runs.
 - `StillQC.evaluate` returns a machine-readable pass/fail result plus reasons suitable for logs and UI.
 - `SharpExecutor.run` returns a `SharpResult` plus execution logs and exit status.
 - `BundleWriter.write` is responsible for deterministic bundle layout and manifest creation.
@@ -256,6 +305,42 @@ Bundle rules:
 - `output/preview.mp4` is optional and may be absent on Apple Silicon-only runs.
 - Partial or failed jobs should preserve whatever logs, QC, and provenance were produced before failure.
 
+### Panorama Viewport Bundle Extension
+
+Phase 1 may also emit an experimental panorama viewport bundle:
+
+```text
+/job-<id>/
+  manifest.json
+  prompt.txt
+  /panorama/
+    source-equirect.png
+    extraction-report.json
+  /viewports/
+    viewport-000.png
+    viewport-060.png
+    viewport-120.png
+    viewport-180.png
+    viewport-240.png
+    viewport-300.png
+  /output/
+    viewport-000.ply
+    viewport-060.ply
+    viewport-120.ply
+    viewport-180.ply
+    viewport-240.ply
+    viewport-300.ply
+  /logs/
+  /qc/
+  /provenance/
+```
+
+Rules:
+- The panorama source must be equirectangular and pass 2:1 image QC before viewport extraction.
+- The raw equirectangular source image should be viewable as a lightweight 360 gut check before reconstruction.
+- `ml-sharp` receives perspective viewport stills, not the equirectangular image directly.
+- Each viewport produces its own `.ply`; Phase 1 does not stitch or compose these into one coherent 360 scene.
+
 ## Local Network Transport
 
 - Bonjour advertisement on `_splatpipe._tcp`
@@ -279,13 +364,19 @@ Transport requirements:
 - provenance capture
 - viewer-failure classification
 - selected-still QC rules
+- local validation harness rules
+- `.ply` structural validation
 - pairing-token validation
 
 ### Integration Tests
 
-- mocked Google Gemini still generation
+- mocked OpenAI GPT Image 2 still generation
+- optional mocked Google Gemini still generation
 - fake RTX worker responses for generation jobs and asset fetches
 - real `ml-sharp` invocation on selected stills
+- equirectangular input validation and viewport extraction
+- candidate and viewport contact-sheet generation
+- `.ply` parseability and non-empty output checks
 - preview artifact optionality on Apple Silicon versus CUDA environments
 - MetalSplatter compatibility checks for emitted `.ply`
 
@@ -293,6 +384,7 @@ Transport requirements:
 
 - macOS typed prompt -> 4 stills -> choose 1 -> selected-still QC -> `ml-sharp` -> bundle -> optional viewer launch
 - macOS dictated prompt -> 4 stills -> choose 1 -> `ml-sharp` -> bundle
+- equirectangular image -> fixed perspective viewports -> per-viewport `ml-sharp` -> multi-output viewport bundle
 - visionOS pairing and delivery path
 - successful job where viewer launch fails but the bundle remains valid
 
@@ -302,6 +394,8 @@ Transport requirements:
 - cloud timeout
 - `ml-sharp` missing or misconfigured
 - selected still fails QC
+- equirectangular source fails 2:1 panorama QC
+- viewport extraction fails or produces missing viewport images
 - bundle write failure
 - viewer not installed on macOS
 - interrupted LAN transfer
@@ -319,6 +413,7 @@ Transport requirements:
 
 - Create a fixed suite of 10 tabletop-vignette prompts plus 2 captured-image baselines.
 - Validate the full path: still generation, candidate selection, selected-still QC, `ml-sharp`, bundle writing, and MetalSplatter viewing.
+- Add a local validation harness that catches bad stills, invalid panoramas, failed viewport extraction, malformed `.ply` outputs, and desktop viewer issues before headset work.
 - Pass gate: at least 7/10 generated jobs complete without manual file surgery, and at least 5/10 are visually acceptable in MetalSplatter.
 - If this fails, generated input stays experimental and captured-image input remains the primary debug path.
 
@@ -327,25 +422,36 @@ Transport requirements:
 - Build a SwiftUI macOS app with typed prompt entry and a native dictation button.
 - Generate 4 candidate stills at `1024x1024`.
 - Support two still backends from day one:
-  - Google image generation
+  - OpenAI GPT Image 2 as the default cloud image provider
+  - Google Gemini as an optional cloud provider
   - local RTX generation via FLUX.1-dev
 - Run selected-still QC before reconstruction.
+- Add an experimental panorama viewport path: equirectangular source image -> fixed perspective viewports -> one `ml-sharp` run per viewport.
 - Run `ml-sharp` locally on the Apple Silicon Mac, package the result bundle, and open the `.ply` in MetalSplatter if installed.
 - Manual Vision Pro handoff is acceptable in this milestone.
 
 ### Milestone 2: visionOS Client and Automatic Delivery
 
 - Build a visionOS SwiftUI app that pairs to the Mac over the local network.
-- The headset app handles speech and text prompt entry, shows the 4 still candidates, lets the user choose one, displays job status, downloads the finished bundle, and opens it automatically.
+- The headset app accepts basic speech/text prompts or external job requests, shows the 4 still candidates, lets the user choose one, displays job status, downloads the finished bundle, and opens it automatically.
 - Use the Mac as the control hub: Vision Pro talks only to the Mac; the Mac talks to cloud services, the RTX worker, and `ml-sharp`.
 - Replace third-party viewer handoff on Vision Pro by embedding or forking the MetalSplatter viewer code.
 - Keep `.ply` as the canonical stored artifact.
+- Validate single-PLY headset viewing first, then add panorama source viewing and multi-PLY viewport-set inspection.
+
+### Milestone 2B: Platform-Agnostic Immersive Viewer Prototype
+
+- Explore a WebXR/WebSpatial-style viewer as a parallel target to native visionOS.
+- Prefer read-only bundle consumption: load `.ply`, equirectangular source images, and panorama viewport bundle metadata without changing reconstruction contracts.
+- Treat this as a portability and sharing path, not the primary MVP success boundary.
+- Do not require browser-based viewing for Phase 1 or the native visionOS milestone.
 
 ### Post-MVP
 
 - Improve local-only generative quality and reduce dependence on cloud still generation.
 - Add automatic candidate scoring and prompt refinement loops.
 - Add multi-PLY composition as a separate scene-assembly feature.
+- Add richer prompt UX through a separate app or sister service if needed.
 - Attempt room-fragment scenes only after tabletop-vignette quality is stable.
 - Evaluate experimental reconstruction pipelines without changing the canonical MVP contract.
 
@@ -357,8 +463,12 @@ Transport requirements:
 - Apple Silicon Mac hardware is available for `ml-sharp`.
 - An RTX worker is optional for MVP but supported for GPU-backed still generation and auxiliary tasks.
 - Generated-content scope is tabletop vignettes, not room corners.
-- Google Gemini is the default cloud still backend.
+- OpenAI GPT Image 2 is the default cloud still backend.
+- Google Gemini remains an optional swappable cloud still backend.
 - FLUX.1-dev is the default local still backend.
+- The Phase 1 panorama path is a viewport prototype, not a stitched 360 reconstruction system.
+- Prompt composition and refinement may be external to this repo; this repo owns prompt/job intake and artifact production.
+- Supplied equirectangular images are first-class inputs alongside generated equirectangular images.
 - Viewer launch is optional convenience, not part of the success boundary.
 - TRELLIS remains future and experimental and must not shape MVP contracts.
 
@@ -366,7 +476,9 @@ Transport requirements:
 
 - [apple/ml-sharp](https://github.com/apple/ml-sharp): canonical MVP reconstruction backend
 - [MetalSplatter](https://github.com/scier/MetalSplatter): reference viewer for macOS MVP and the basis for future viewer interop
-- [Google Gemini image generation docs](https://ai.google.dev/gemini-api/docs/image-generation): default cloud still-generation reference
+- [OpenAI image generation guide](https://developers.openai.com/api/docs/guides/image-generation): default cloud still-generation reference using GPT Image 2
+- [OpenAI image generation tool guide](https://developers.openai.com/api/docs/guides/tools-image-generation): reference for future multi-turn or reference-image workflows
+- [Google Gemini image generation docs](https://ai.google.dev/gemini-api/docs/image-generation): optional cloud still-generation reference
 - [FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev): default local still-generation reference
 - [TRELLIS](https://github.com/microsoft/TRELLIS): future experimental reconstruction or image-to-3D path only
 
@@ -534,6 +646,29 @@ This enables:
 
 The reconstruction layer is the only component that produces the canonical `.ply` artifact in MVP.
 
+### Phase 1 Panorama Viewport Prototype
+
+The Phase 1 panorama path is an experimental viewport workflow:
+
+- accept a supplied equirectangular image or generate one through OpenAI GPT Image 2
+- preserve the raw equirectangular image for direct 360 viewing as a gut check
+- validate that the equirectangular source is 2:1
+- extract fixed perspective viewports
+- run selected-still QC and `ml-sharp` independently per viewport
+- write one `.ply` per viewport
+- package the viewport set and outputs together
+
+Default viewport settings:
+
+- projection source: equirectangular
+- viewport count: 6
+- yaw angles: `0, 60, 120, 180, 240, 300`
+- pitch: `0`
+- field of view: `90`
+- output naming: `viewport-000`, `viewport-060`, etc.
+
+This prototype does not produce a stitched 360 scene. Stitching, alignment, and composition are deferred.
+
 ## Future Experimental Paths
 
 The following items are explicitly out of the canonical MVP contract:
@@ -548,5 +683,8 @@ These ideas may still be explored as future experimental paths:
 - selected still -> image-to-3D or orbit synthesis -> multi-view reconstruction
 - TRELLIS-backed preprocessing or reconstruction
 - worker-generated preview renders and richer artifact derivatives
+- stitched or composed 360 splat scenes from per-viewport PLY outputs
+- WebXR/WebSpatial-style immersive bundle viewer
+- advanced prompt UX, speech-to-text, palette selection, and prompt-refinement services
 
 If experimental paths are implemented, they must be isolated behind optional backend flags and must not redefine MVP success, required bundle contents, or the default job lifecycle.
