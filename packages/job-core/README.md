@@ -1,13 +1,20 @@
 # job-core
 
-This package is reserved for the core job model and pipeline state machine shared by the macOS app, tests, and later clients.
+This package contains the core job model and local validation primitives shared by the macOS control plane, tests, and later clients.
 
-## Planned Responsibilities
+## Responsibilities
 
 - job state definitions
 - transition rules
-- retry policy primitives
+- bundle manifest serialization
 - artifact path conventions
-- serialization helpers for job metadata
+- image, panorama, and `.ply` validation helpers
+- contact-sheet writing for local desktop review
 
 The package should stay independent from UI and network transport details.
+
+## Local Commands
+
+```sh
+swift test
+```
